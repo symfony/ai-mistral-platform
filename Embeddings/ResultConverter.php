@@ -14,37 +14,37 @@ namespace Symfony\AI\Platform\Bridge\Mistral\Embeddings;
 use Symfony\AI\Platform\Bridge\Mistral\Embeddings;
 use Symfony\AI\Platform\Exception\RuntimeException;
 use Symfony\AI\Platform\Model;
-use Symfony\AI\Platform\Response\RawHttpResponse;
-use Symfony\AI\Platform\Response\RawResponseInterface;
-use Symfony\AI\Platform\Response\VectorResponse;
-use Symfony\AI\Platform\ResponseConverterInterface;
+use Symfony\AI\Platform\Result\RawHttpResult;
+use Symfony\AI\Platform\Result\RawResultInterface;
+use Symfony\AI\Platform\Result\VectorResult;
+use Symfony\AI\Platform\ResultConverterInterface;
 use Symfony\AI\Platform\Vector\Vector;
 
 /**
  * @author Christopher Hertel <mail@christopher-hertel.de>
  */
-final readonly class ResponseConverter implements ResponseConverterInterface
+final readonly class ResultConverter implements ResultConverterInterface
 {
     public function supports(Model $model): bool
     {
         return $model instanceof Embeddings;
     }
 
-    public function convert(RawResponseInterface|RawHttpResponse $response, array $options = []): VectorResponse
+    public function convert(RawResultInterface|RawHttpResult $result, array $options = []): VectorResult
     {
-        $httpResponse = $response->getRawObject();
+        $httpResponse = $result->getObject();
 
         if (200 !== $httpResponse->getStatusCode()) {
             throw new RuntimeException(\sprintf('Unexpected response code %d: %s', $httpResponse->getStatusCode(), $httpResponse->getContent(false)));
         }
 
-        $data = $response->getRawData();
+        $data = $result->getData();
 
         if (!isset($data['data'])) {
             throw new RuntimeException('Response does not contain data');
         }
 
-        return new VectorResponse(
+        return new VectorResult(
             ...array_map(
                 static fn (array $item): Vector => new Vector($item['embedding']),
                 $data['data']

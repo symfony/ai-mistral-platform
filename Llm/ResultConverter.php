@@ -14,16 +14,16 @@ namespace Symfony\AI\Platform\Bridge\Mistral\Llm;
 use Symfony\AI\Platform\Bridge\Mistral\Mistral;
 use Symfony\AI\Platform\Exception\RuntimeException;
 use Symfony\AI\Platform\Model;
-use Symfony\AI\Platform\Response\Choice;
-use Symfony\AI\Platform\Response\ChoiceResponse;
-use Symfony\AI\Platform\Response\RawHttpResponse;
-use Symfony\AI\Platform\Response\RawResponseInterface;
-use Symfony\AI\Platform\Response\ResponseInterface;
-use Symfony\AI\Platform\Response\StreamResponse;
-use Symfony\AI\Platform\Response\TextResponse;
-use Symfony\AI\Platform\Response\ToolCall;
-use Symfony\AI\Platform\Response\ToolCallResponse;
-use Symfony\AI\Platform\ResponseConverterInterface;
+use Symfony\AI\Platform\Result\Choice;
+use Symfony\AI\Platform\Result\ChoiceResult;
+use Symfony\AI\Platform\Result\RawHttpResult;
+use Symfony\AI\Platform\Result\RawResultInterface;
+use Symfony\AI\Platform\Result\ResultInterface;
+use Symfony\AI\Platform\Result\StreamResult;
+use Symfony\AI\Platform\Result\TextResult;
+use Symfony\AI\Platform\Result\ToolCall;
+use Symfony\AI\Platform\Result\ToolCallResult;
+use Symfony\AI\Platform\ResultConverterInterface;
 use Symfony\Component\HttpClient\Chunk\ServerSentEvent;
 use Symfony\Component\HttpClient\EventSourceHttpClient;
 use Symfony\Component\HttpClient\Exception\JsonException;
@@ -32,7 +32,7 @@ use Symfony\Contracts\HttpClient\ResponseInterface as HttpResponse;
 /**
  * @author Christopher Hertel <mail@christopher-hertel.de>
  */
-final readonly class ResponseConverter implements ResponseConverterInterface
+final readonly class ResultConverter implements ResultConverterInterface
 {
     public function supports(Model $model): bool
     {
@@ -42,19 +42,19 @@ final readonly class ResponseConverter implements ResponseConverterInterface
     /**
      * @param array<string, mixed> $options
      */
-    public function convert(RawResponseInterface|RawHttpResponse $response, array $options = []): ResponseInterface
+    public function convert(RawResultInterface|RawHttpResult $result, array $options = []): ResultInterface
     {
-        $httpResponse = $response->getRawObject();
+        $httpResponse = $result->getObject();
 
         if ($options['stream'] ?? false) {
-            return new StreamResponse($this->convertStream($httpResponse));
+            return new StreamResult($this->convertStream($httpResponse));
         }
 
         if (200 !== $code = $httpResponse->getStatusCode()) {
             throw new RuntimeException(\sprintf('Unexpected response code %d: %s', $code, $httpResponse->getContent(false)));
         }
 
-        $data = $response->getRawData();
+        $data = $result->getData();
 
         if (!isset($data['choices'])) {
             throw new RuntimeException('Response does not contain choices');
@@ -64,20 +64,20 @@ final readonly class ResponseConverter implements ResponseConverterInterface
         $choices = array_map($this->convertChoice(...), $data['choices']);
 
         if (1 !== \count($choices)) {
-            return new ChoiceResponse(...$choices);
+            return new ChoiceResult(...$choices);
         }
 
         if ($choices[0]->hasToolCall()) {
-            return new ToolCallResponse(...$choices[0]->getToolCalls());
+            return new ToolCallResult(...$choices[0]->getToolCalls());
         }
 
-        return new TextResponse($choices[0]->getContent());
+        return new TextResult($choices[0]->getContent());
     }
 
-    private function convertStream(HttpResponse $response): \Generator
+    private function convertStream(HttpResponse $result): \Generator
     {
         $toolCalls = [];
-        foreach ((new EventSourceHttpClient())->stream($response) as $chunk) {
+        foreach ((new EventSourceHttpClient())->stream($result) as $chunk) {
             if (!$chunk instanceof ServerSentEvent || '[DONE]' === $chunk->getData()) {
                 continue;
             }
@@ -94,7 +94,7 @@ final readonly class ResponseConverter implements ResponseConverterInterface
             }
 
             if ([] !== $toolCalls && $this->isToolCallsStreamFinished($data)) {
-                yield new ToolCallResponse(...array_map($this->convertToolCall(...), $toolCalls));
+                yield new ToolCallResult(...array_map($this->convertToolCall(...), $toolCalls));
             }
 
             if (!isset($data['choices'][0]['delta']['content'])) {
